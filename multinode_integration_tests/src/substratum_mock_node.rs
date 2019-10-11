@@ -29,10 +29,10 @@ use serde_cbor;
 use std::cell::RefCell;
 use std::io;
 use std::io::{Error, ErrorKind, Read, Write};
-use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::TcpStream;
+use std::net::{IpAddr, Shutdown};
 use std::ops::Add;
 use std::rc::Rc;
 use std::thread;
@@ -65,7 +65,7 @@ impl SubstratumNode for SubstratumMockNode {
     fn node_reference(&self) -> NodeReference {
         NodeReference::new(
             self.signing_cryptde().unwrap().public_key().clone(),
-            self.node_addr().ip_addr(),
+            Some(self.node_addr().ip_addr()),
             self.node_addr().ports(),
         )
     }
@@ -118,6 +118,14 @@ impl SubstratumNode for SubstratumMockNode {
 
     fn chain(&self) -> Option<String> {
         self.guts.chain.clone()
+    }
+
+    fn accepts_connections(&self) -> bool {
+        true // just a guess
+    }
+
+    fn routes_data(&self) -> bool {
+        true // just a guess
     }
 }
 
@@ -343,7 +351,7 @@ impl SubstratumMockNode {
         match self.wait_for_package(&masquerader, timeout) {
             Ok((from, _, package)) => {
                 let incoming_cores_package = package
-                    .to_expired(from.ip(), self.signing_cryptde().unwrap())
+                    .to_expired(from, self.signing_cryptde().unwrap())
                     .unwrap();
                 match incoming_cores_package.payload {
                     MessageType::Gossip(g) => Some((g, from.ip())),
@@ -352,6 +360,12 @@ impl SubstratumMockNode {
             }
             Err(_) => None,
         }
+    }
+
+    pub fn kill(self) {
+        let mut stream = self.control_stream.borrow_mut();
+        stream.flush().unwrap();
+        stream.shutdown(Shutdown::Both).unwrap();
     }
 
     fn do_docker_run(node_addr: &NodeAddr, host_node_parent_dir: Option<String>, name: &String) {
